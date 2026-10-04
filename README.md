@@ -140,12 +140,20 @@ Pin `ggml-0.22.0+llama-0eadefe`: llama.cpp `0eadefebd3f8f92a86d634a0e5b8fffc9dc7
 ggml `36da57138425487184aa1da2eee2cde155909c6f` (0.22.0), libllama 0.3.0.
 Release: <https://github.com/GigLaboCom/llama-cpp-prebuilt/releases/tag/b10731>.
 
-| target | sha256 of `llama-cpp-b10731-<target>.tar.gz` |
-|---|---|
-| `x86_64-unknown-linux-gnu` | _filled in by the first release_ |
-| `aarch64-unknown-linux-gnu` | _filled in by the first release_ |
-| `x86_64-pc-windows-msvc` | _filled in by the first release_ |
-| `aarch64-apple-darwin` | _filled in by the first release_ |
+| target | sha256 of `llama-cpp-b10731-<target>.tar.gz` | size |
+|---|---|---|
+| `x86_64-unknown-linux-gnu` | `0352d4924d84d634278a4ee14cd8429ad7bd9cfab6e5fbc49572754f1463df45` | 22 492 523 |
+| `aarch64-unknown-linux-gnu` | `731d0e26d8d2a9f4d7822386a4af0c4b6dc693b9b105e00583c9dd0c59db050b` | 16 384 140 |
+| `x86_64-pc-windows-msvc` | `3a62da8b3f451add07c26163f08dc5ae4f029e360974356a7b8d8d4ee1db74cc` | 21 670 659 |
+| `aarch64-apple-darwin` | `5686acb21e5e87c9a5ab1df870e4d6d110332ed7f9da6be10590ca0912fac919` | 2 257 599 |
+
+Built from this repository at `a0f0475` by
+[run 37206727539](https://github.com/GigLaboCom/llama-cpp-prebuilt/actions/runs/37206727539)
+on 2026-10-04. Checked after publishing: the x86_64 Linux `bindings.rs` is
+byte-identical to the one wipemark-llama-sys generates on Ubuntu 24.04, and
+Qwen3 4B Instruct 2507 (UD-Q4_K_XL) loads on it fully offloaded to Vulkan
+(RTX 5070 Ti) and generates at about 190 tokens/s through
+`smoke/generate.c`.
 
 ## How it is built
 
