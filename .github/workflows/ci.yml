@@ -1,0 +1,48 @@
+# On every push and pull request: build and smoke-test one target
+# (x86_64 Linux, CPU + Vulkan) with the same scripts the release runs, so
+# a broken script is found before a tag is pushed. Publishes nothing.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-x86_64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build tools and Vulkan
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config cmake clang libclang-dev \
+            libvulkan-dev glslc spirv-headers libvulkan1 mesa-vulkan-drivers
+
+      - name: Shell scripts parse
+        run: bash -n scripts/build.sh && bash -n scripts/smoke.sh
+
+      - name: Build
+        run: scripts/build.sh
+
+      - name: Smoke test the packed archive
+        run: |
+          . ./PIN
+          scripts/smoke.sh "dist/llama-cpp-$LLAMA_TAG-x86_64-unknown-linux-gnu.tar.gz" CPU Vulkan
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-x86_64-unknown-linux-gnu
+          path: dist/*.tar.gz
+          retention-days: 7

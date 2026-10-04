@@ -1,0 +1,189 @@
+# Builds the pinned llama.cpp for four targets and publishes a release.
+#
+# Trigger: push a tag b<N> whose PIN says LLAMA_TAG=b<N> (README, "Cutting a
+# release for a new pin"). Every target is built by scripts/build.sh and
+# smoke-tested by scripts/smoke.sh from the packed archive; the release is
+# created only when all four are green.
+#
+# By hand (workflow_dispatch) on any branch: builds the four targets at that
+# branch with `tag` as the expected pin — a dry run of a release before the
+# tag exists. With `publish` it also publishes, and then the tag must exist
+# and name the commit that was built.
+name: release
+
+on:
+  push:
+    tags: ["b*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release tag b<N> (must be the PIN's LLAMA_TAG on the chosen branch)"
+        required: true
+      publish:
+        description: "Publish the release (the tag must exist and name this commit)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  # The Vulkan SDK for the Windows build: the version llama.cpp's own
+  # release workflow uses at b10731, and the installer's sha256 as fetched
+  # from sdk.lunarg.com on 2026-10-04.
+  VULKAN_VERSION: 1.4.357.0
+  VULKAN_INSTALLER_SHA256: 81f474711e9042f4cd22b31b2f7a8870db2e428b21586fb43dd80150be97310d
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+            # mesa-vulkan-drivers gives lavapipe, a software Vulkan driver,
+            # so the Vulkan registry can register with no GPU.
+            require: CPU Vulkan
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            require: CPU Vulkan
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            # No Vulkan driver on the runner: the Vulkan library is proven
+            # to load (step 1 of smoke), not to register.
+            require: CPU
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            require: CPU MTL
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The tag is the pin
+        run: |
+          . ./PIN
+          echo "PIN: $LLAMA_TAG @ $LLAMA_COMMIT"
+          test "$LLAMA_TAG" = "$TAG" || { echo "tag $TAG but PIN says $LLAMA_TAG"; exit 1; }
+
+      - name: Build tools and Vulkan (Linux)
+        if: runner.os == 'Linux'
+        # The list wipemark-app's `native` CI lane installs.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config cmake clang libclang-dev \
+            libvulkan-dev glslc spirv-headers libvulkan1 mesa-vulkan-drivers
+
+      - name: Vulkan SDK (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = "$env:RUNNER_TEMP\VulkanSDK-Installer.exe"
+          curl.exe -fsSL -o $installer "https://sdk.lunarg.com/sdk/download/$env:VULKAN_VERSION/windows/vulkansdk-windows-X64-$env:VULKAN_VERSION.exe"
+          $sha = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLower()
+          if ($sha -ne $env:VULKAN_INSTALLER_SHA256) { throw "Vulkan SDK installer sha256 $sha, expected $env:VULKAN_INSTALLER_SHA256" }
+          & $installer --accept-licenses --default-answer --confirm-command install
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\$env:VULKAN_VERSION"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\$env:VULKAN_VERSION\Bin"
+          # bindgen's libclang: the LLVM the runner image ships.
+          Add-Content $env:GITHUB_ENV "LIBCLANG_PATH=C:\Program Files\LLVM\bin"
+
+      - name: cmake (macOS)
+        if: runner.os == 'macOS'
+        run: command -v cmake || brew install cmake
+
+      - name: Rust toolchain for bindgen (bindgen/rust-toolchain.toml)
+        working-directory: bindgen
+        run: |
+          rustup toolchain install
+          rustc --version
+          rustfmt --version
+
+      - name: Build
+        env:
+          TARGET_TRIPLE: ${{ matrix.target }}
+        run: scripts/build.sh
+
+      - name: Smoke test the packed archive
+        run: scripts/smoke.sh "dist/llama-cpp-$TAG-${{ matrix.target }}.tar.gz" ${{ matrix.require }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llama-cpp-${{ env.TAG }}-${{ matrix.target }}
+          path: |
+            dist/llama-cpp-${{ env.TAG }}-${{ matrix.target }}.tar.gz
+            dist/llama-cpp-${{ env.TAG }}-${{ matrix.target }}.tar.gz.sha256
+            dist/PROVENANCE-${{ matrix.target }}.txt
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The tag names the commit that was built
+        run: |
+          tagged="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          test "$tagged" = "$GITHUB_SHA" || { echo "tag $TAG is $tagged, built $GITHUB_SHA"; exit 1; }
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: SHA256SUMS
+        working-directory: assets
+        run: |
+          for f in *.tar.gz.sha256; do sha256sum -c "$f"; done
+          rm -f ./*.tar.gz.sha256
+          sha256sum -- *.tar.gz PROVENANCE-*.txt | LC_ALL=C sort -k2 > SHA256SUMS
+          cat SHA256SUMS
+          test "$(ls ./*.tar.gz | wc -l)" = 4
+
+      - name: Release notes
+        run: |
+          . ./PIN
+          {
+            echo "llama.cpp **$LLAMA_TAG** (\`$LLAMA_COMMIT\`), ggml $GGML_VERSION (\`$GGML_COMMIT\`) — pin \`$PIN_STRING\`."
+            echo
+            echo "Built by \`scripts/build.sh\` exactly as wipemark-llama-sys builds it: one shared ggml with run-time-loaded backends (\`GGML_BACKEND_DL=ON\`) and libllama against it."
+            echo "Vulkan on Linux and Windows, Metal on macOS, no CUDA. Each archive carries \`include/\`, \`lib/\` (and \`bin/\` on Windows), \`backends/\`, pre-generated \`bindings.rs\` (bindgen 0.71.1), \`LICENSE-llama.cpp\` (MIT) and \`PROVENANCE.txt\`."
+            echo
+            echo "| target | archive | sha256 |"
+            echo "|---|---|---|"
+            for f in assets/*.tar.gz; do
+              b="$(basename "$f")"; t="${b#llama-cpp-$LLAMA_TAG-}"; t="${t%.tar.gz}"
+              echo "| \`$t\` | \`$b\` | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"
+            done
+            echo
+            echo "Verify: \`sha256sum -c SHA256SUMS --ignore-missing\`. Build log: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > notes.md
+          cat notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --clobber
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" assets/* --verify-tag --title "llama.cpp $TAG" --notes-file notes.md
+          fi

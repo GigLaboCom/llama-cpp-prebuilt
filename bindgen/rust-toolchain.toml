@@ -1,0 +1,7 @@
+# The toolchain wipemark-app pins (its rust-toolchain.toml). bindgen pipes
+# its output through `rustfmt` from this toolchain, so the formatting of
+# bindings.rs depends on it: keep it equal to wipemark's.
+[toolchain]
+channel = "1.94.1"
+components = ["rustfmt"]
+profile = "minimal"

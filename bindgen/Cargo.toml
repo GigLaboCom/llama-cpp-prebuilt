@@ -1,0 +1,14 @@
+[package]
+name = "llama-cpp-prebuilt-bindgen"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Generates bindings.rs exactly as wipemark-llama-sys's build.rs does (bindgen 0.71.1, same builder chain)."
+
+[dependencies]
+# Exact: the version in wipemark-app's Cargo.lock. Default features, as
+# wipemark's workspace takes it (`bindgen = "0.71"`).
+bindgen = "=0.71.1"
+
+# Not part of any workspace above this directory.
+[workspace]

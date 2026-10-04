@@ -1,0 +1,11 @@
+# The llama.cpp this repository builds. One release per pin: the tag of a
+# release here is LLAMA_TAG. Sourced by scripts/build.sh (KEY=VALUE, no
+# spaces). Mirrors wipemark-app's crates/wipemark-llama-sys/PIN.md.
+LLAMA_REPO=https://github.com/ggml-org/llama.cpp
+LLAMA_TAG=b10731
+LLAMA_COMMIT=0eadefebd3f8f92a86d634a0e5b8fffc9dc792c0
+LLAMA_VERSION=0.3.0
+GGML_COMMIT=36da57138425487184aa1da2eee2cde155909c6f
+GGML_VERSION=0.22.0
+# The canonical pin string wipemark-llama-sys quotes (`pin::PIN`).
+PIN_STRING=ggml-0.22.0+llama-0eadefe
