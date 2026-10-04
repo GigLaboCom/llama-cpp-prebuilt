@@ -63,7 +63,7 @@ jobs:
             require: CPU
           - target: aarch64-apple-darwin
             runner: macos-latest
-            require: CPU MTL
+            require: CPU MTL BLAS
     defaults:
       run:
         shell: bash

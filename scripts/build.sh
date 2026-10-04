@@ -89,7 +89,12 @@ fi
 
 # A path as the native tools want it (C:/... on Windows, unchanged elsewhere).
 native() { if [ "$os" = windows ]; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
-sha256() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+# "<hash>  <file>" everywhere: Git Bash's sha256sum marks binary mode with
+# "<hash> *<file>", which other checkers and the provenance grep reject.
+sha256() {
+  if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi \
+    | sed -E 's/^([0-9a-f]{64}) [ *]/\1  /'
+}
 
 name="llama-cpp-${LLAMA_TAG}-${target}"
 src="$work/llama.cpp"
@@ -365,4 +370,5 @@ else
 fi
 cp "$stage/PROVENANCE.txt" "$dist/PROVENANCE-$target.txt"
 (cd "$dist" && sha256 "$name.tar.gz" > "$name.tar.gz.sha256" && cat "$name.tar.gz.sha256")
+sed '/^## files/q' "$stage/PROVENANCE.txt"
 echo "built $name in $(( $(date -u +%s) - started )) s"
