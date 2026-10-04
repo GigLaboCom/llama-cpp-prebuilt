@@ -4,8 +4,9 @@
  *
  * Not run in CI (no model there). By hand, on a machine with a GPU:
  * every layer is offloaded (n_gpu_layers = 999), greedy sampling, and the
- * prompt-processing and generation rates are printed. Exit 0 when at least
- * one token was generated.
+ * prompt-processing and generation rates are printed — after one warm-up
+ * pass over the prompt, so that compiling the GPU pipelines is not counted
+ * as generation. Exit 0 when at least one token was generated.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,11 +72,27 @@ int main(int argc, char **argv) {
     struct llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
 
+    /* Warm-up: the first decodes compile the GPU pipelines. */
+    if (llama_decode(ctx, llama_batch_get_one(tokens, n_prompt)) != 0) {
+        fprintf(stderr, "FAIL warm-up\n");
+        return 1;
+    }
+    {
+        llama_token tok = llama_sampler_sample(smpl, ctx, -1);
+        if (llama_decode(ctx, llama_batch_get_one(&tok, 1)) != 0) {
+            fprintf(stderr, "FAIL warm-up\n");
+            return 1;
+        }
+    }
+    llama_memory_clear(llama_get_memory(ctx), true);
+    llama_sampler_reset(smpl);
+
     t0 = now();
     if (llama_decode(ctx, llama_batch_get_one(tokens, n_prompt)) != 0) {
         fprintf(stderr, "FAIL decode prompt\n");
         return 1;
     }
+    llama_synchronize(ctx); /* a GPU decode returns before it is done */
     double t_prompt = now() - t0;
 
     int produced = 0;
