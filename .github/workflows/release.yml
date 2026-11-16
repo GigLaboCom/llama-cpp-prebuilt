@@ -169,7 +169,7 @@ jobs:
             echo "llama.cpp **$LLAMA_TAG** (\`$LLAMA_COMMIT\`), ggml $GGML_VERSION (\`$GGML_COMMIT\`) — pin \`$PIN_STRING\`."
             echo
             echo "Built by \`scripts/build.sh\` exactly as wipemark-llama-sys builds it: one shared ggml with run-time-loaded backends (\`GGML_BACKEND_DL=ON\`) and libllama against it."
-            echo "Vulkan on Linux and Windows, Metal on macOS, no CUDA. On Windows the C runtime is linked statically (/MT) and OpenMP is off: no DLL imports a Visual C++ runtime DLL, so nothing needs the Redistributable (scripts/smoke.sh checks every import table)."
+            echo "Vulkan on Linux and Windows, Metal on macOS, no CUDA. On Windows the C runtime is linked statically (/MT) and OpenMP is off: no DLL imports a Visual C++ runtime DLL, so nothing needs the Redistributable (scripts/smoke.sh checks every import table); patches/windows/ is applied there (PROVENANCE names each patch)."
             [ "$RELEASE_TAG" = "$LLAMA_TAG" ] || echo "This is build ${RELEASE_TAG#"$LLAMA_TAG"-} of llama.cpp $LLAMA_TAG; the PIN file says what changed since the build before it."
             echo "Each archive carries \`include/\`, \`lib/\` (and \`bin/\` on Windows), \`backends/\`, pre-generated \`bindings.rs\` (bindgen 0.71.1), \`LICENSE-llama.cpp\` (MIT) and \`PROVENANCE.txt\`."
             echo

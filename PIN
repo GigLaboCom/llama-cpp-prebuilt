@@ -14,5 +14,8 @@ PIN_STRING=ggml-0.22.0+llama-0eadefe
 # built again with other flags. Nothing else names the tag.
 #   b10731   (2026-10-04) the first build.
 #   b10731-2 (2026-11-16) Windows with the static C runtime (/MT) and
-#            without OpenMP, so its DLLs import no Visual C++ runtime DLL.
+#            without OpenMP, so its DLLs import no Visual C++ runtime DLL,
+#            and with patches/windows/ applied (llama.dll opens its own
+#            files; a FILE* may not cross from one static runtime to
+#            another).
 RELEASE_TAG=b10731-2

@@ -34,9 +34,9 @@ libraries must keep it with them.
 
 Compiled into the Vulkan backend are the Khronos Vulkan headers
 (`Vulkan-Hpp`, Apache-2.0 / MIT) from the build machine's Vulkan SDK; the
-libraries link the platform C++ runtime — on Windows statically, so the
-Microsoft C runtime's licence travels inside the DLLs — and on Linux the
-OpenMP runtime (`libgomp`). Windows builds have no OpenMP.
+libraries link the platform C++ runtime — on Windows statically, since
+`b10731-2` — and on Linux the OpenMP runtime (`libgomp`). Windows builds
+have no OpenMP.
 
 The scripts in this repository are MIT-licensed too ([`LICENSE`](LICENSE)).
 
@@ -241,9 +241,24 @@ Deliberate, and the only differences:
   starts on a Windows without the Visual C++ Redistributable, or with an
   older one than the toolset that built them. `scripts/smoke.sh` fails on
   any import of `msvcp*`, `vcruntime*`, `vcomp*`, `concrt*`, `ucrtbase` or
-  `api-ms-win-crt-*`. Each DLL carries its own runtime: memory is freed by
-  the library that allocated it, which ggml's backend interface already
-  requires. On Linux and macOS the flags are the `cmake` and `cc`
+  `api-ms-win-crt-*`. Each DLL carries its own runtime, so nothing the C
+  runtime owns may cross from one DLL to another: memory is freed by the
+  library that allocated it (ggml's backend interface already requires
+  it), and a `FILE *` is used only by the DLL that opened it — hence the
+  one patch below.
+* **One patch, Windows only** (`patches/windows/`, since `b10731-2`).
+  `0001-llama-mmap-own-fopen.patch`: llama.cpp's `llama_file` opens a model
+  with `ggml_fopen`, a `FILE *` of `ggml-base.dll`'s runtime, and calls
+  `_fileno` on it in `llama.dll`'s; with a runtime per DLL that ends the
+  process with `0xc0000409` at the first model load. The patch opens the
+  file inside `llama.dll` the way `ggml_fopen` does (UTF-8 to UTF-16,
+  `_wfopen`). `build.sh` applies `patches/<os>/*.patch` in name order to
+  a tree checked out without line-ending conversion, and `PROVENANCE.txt`
+  names each patch with its sha256 (`patches: none` elsewhere). The
+  `FILE *` entry points — `llama_model_load_from_file_ptr`,
+  `gguf_init_from_file_ptr`, `gguf_write_to_file_ptr` — still hand a
+  `FILE *` from one DLL to another and must not be used with this build
+  on Windows; open by path. On Linux and macOS the flags are the `cmake` and `cc`
   crates' exactly (`-ffunction-sections -fdata-sections -fPIC [-m64] -w`,
   and `--target=arm64-apple-macosx -mmacosx-version-min=11.0` on macOS).
 * **Only the libraries are packed** — not `lib/cmake/` or `lib/pkgconfig/`,

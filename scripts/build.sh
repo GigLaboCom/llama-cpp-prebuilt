@@ -33,7 +33,8 @@
 # compiled in, the rpath is $ORIGIN / @loader_path instead of an absolute
 # build path, the MSVC flags are CMake's Release defaults, and on Windows
 # the C runtime is linked statically (/MT) with OpenMP off, so no DLL of the
-# archive imports a Visual C++ runtime DLL (scripts/smoke.sh checks).
+# archive imports a Visual C++ runtime DLL (scripts/smoke.sh checks) — with
+# patches/windows/ applied to the source, which a runtime per DLL needs.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -121,6 +122,10 @@ if [ -e "$src/.git" ] && [ "$(git -C "$src" rev-parse HEAD 2>/dev/null)" = "$LLA
 else
   rm -rf "$src"; mkdir -p "$src"
   git -C "$src" init -q
+  # The tree exactly as upstream has it, line endings included: Git for
+  # Windows (a runner's included) would otherwise check it out with CRLF,
+  # and a patch below would not apply.
+  git -C "$src" config core.autocrlf false
   git -C "$src" remote add origin "$source_repo"
   git -C "$src" fetch -q --depth 1 origin "$LLAMA_COMMIT"
   git -C "$src" checkout -q FETCH_HEAD
@@ -141,6 +146,21 @@ ggml_v="$(ver GGML MAJOR "$src/ggml/CMakeLists.txt").$(ver GGML MINOR "$src/ggml
 llama_v="$(ver LLAMA MAJOR "$src/CMakeLists.txt").$(ver LLAMA MINOR "$src/CMakeLists.txt").$(ver LLAMA PATCH "$src/CMakeLists.txt")"
 [ "$llama_v" = "$LLAMA_VERSION" ] || die "llama version is $llama_v, PIN says $LLAMA_VERSION"
 echo "ok: HEAD, tag, ggml $GGML_COMMIT ($ggml_v), llama $llama_v"
+
+# Patches, per OS: patches/<os>/*.patch in name order, onto a tree with no
+# change of its own (a tree left by an earlier run is put back first). On
+# Windows, patches/windows/0001-llama-mmap-own-fopen.patch: with the static
+# C runtime every DLL has its own, and llama.dll must not call _fileno on a
+# FILE* of ggml-base.dll's (0xc0000409 at the first model load otherwise).
+patches=()
+for p in "$here/patches/$os"/*.patch; do
+  if [ -e "$p" ]; then patches+=("$p"); fi
+done
+git -C "$src" checkout -q -- .
+for p in ${patches[@]+"${patches[@]}"}; do
+  git -C "$src" apply --whitespace=nowarn "$(native "$p")" || die "patch $(basename "$p") does not apply"
+  echo "ok: patch $(basename "$p")"
+done
 
 # Quirk 1 of wipemark-llama-sys (`ensure_ggml_pc_in`): ggml configured as
 # the top-level project wants ggml.pc.in, which the llama.cpp subtree omits.
@@ -302,6 +322,11 @@ git -C "$here" diff --quiet HEAD 2>/dev/null || repo_commit="$repo_commit-dirty"
   echo "ggml_commit: $GGML_COMMIT"
   echo "ggml_version: $GGML_VERSION"
   echo "pin: $PIN_STRING"
+  if [ "${#patches[@]}" -eq 0 ]; then
+    echo "patches: none"
+  else
+    for p in ${patches[@]+"${patches[@]}"}; do echo "patch: $(sha256 "$p" | cut -d' ' -f1)  patches/$os/$(basename "$p")"; done
+  fi
   echo "build_date_utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "build_seconds: $(( $(date -u +%s) - started ))"
   echo "runner_image: ${ImageOS:-n/a} ${ImageVersion:-}"

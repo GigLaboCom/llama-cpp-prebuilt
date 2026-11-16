@@ -1,0 +1,55 @@
+llama-mmap: open a model file with llama.dll's own C runtime on Windows
+
+Applied by llama-cpp-prebuilt's scripts/build.sh to the Windows build only
+(from b10731-2). Every DLL of that build links the C runtime statically
+(/MT), so each has its own; llama_file's Windows impl opened the file with
+ggml_fopen, a FILE* of ggml-base.dll's runtime, and called _fileno on it in
+llama.dll's, which ends the process with 0xc0000409 at the first model load.
+llama_fopen does what ggml_fopen does (UTF-8 path and mode to UTF-16,
+_wfopen) inside llama.dll. Nothing changes for a build with the shared
+runtime (/MD) or on any other platform.
+
+diff --git a/src/llama-mmap.cpp b/src/llama-mmap.cpp
+index 4d183cb..5631d13 100644
+--- a/src/llama-mmap.cpp
++++ b/src/llama-mmap.cpp
+@@ -48,6 +48,30 @@
+ #    define llama_mmap_fseek fseeko
+ #endif
+ 
++#if defined(_WIN32)
++// llama.dll opens its own files. The FILE* ggml_fopen returns belongs to
++// ggml-base.dll's C runtime, which is another runtime when every DLL links
++// it statically (/MT), and _fileno() on it below ends the process with
++// 0xc0000409. The same UTF-8 handling as ggml_fopen.
++static FILE * llama_fopen(const char * fname, const char * mode) {
++    auto widen = [](const char * s) -> std::wstring {
++        const int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
++        if (n <= 0) {
++            return std::wstring();
++        }
++        std::wstring w(n, L'\0');
++        MultiByteToWideChar(CP_UTF8, 0, s, -1, &w[0], n);
++        return w;
++    };
++    const std::wstring wfname = widen(fname);
++    const std::wstring wmode  = widen(mode);
++    if (wfname.empty() || wmode.empty()) {
++        return nullptr;
++    }
++    return _wfopen(wfname.c_str(), wmode.c_str());
++}
++#endif
++
+ // TODO: consider moving to llama-impl.h if needed in more places
+ #if defined(_WIN32)
+ static std::string llama_format_win_err(DWORD err) {
+@@ -84,7 +108,7 @@ struct llama_file::impl {
+     }
+ 
+     impl(const char * fname, const char * mode, [[maybe_unused]] const bool use_direct_io = false) {
+-        fp = ggml_fopen(fname, mode);
++        fp = llama_fopen(fname, mode);
+         if (fp == NULL) {
+             throw std::runtime_error(format("failed to open %s: %s", fname, strerror(errno)));
+         }
