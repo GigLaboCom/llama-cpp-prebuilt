@@ -39,7 +39,7 @@ jobs:
       - name: Smoke test the packed archive
         run: |
           . ./PIN
-          scripts/smoke.sh "dist/llama-cpp-$LLAMA_TAG-x86_64-unknown-linux-gnu.tar.gz" CPU Vulkan
+          scripts/smoke.sh "dist/llama-cpp-$RELEASE_TAG-x86_64-unknown-linux-gnu.tar.gz" CPU Vulkan
 
       - uses: actions/upload-artifact@v4
         with:

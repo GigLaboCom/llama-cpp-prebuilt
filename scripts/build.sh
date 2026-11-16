@@ -31,7 +31,9 @@
 # Deliberate differences from wipemark-llama-sys, all listed in README.md
 # ("What differs from a wipemark-llama-sys build"): no GGML_BACKEND_DIR is
 # compiled in, the rpath is $ORIGIN / @loader_path instead of an absolute
-# build path, and the MSVC flags are CMake's Release defaults.
+# build path, the MSVC flags are CMake's Release defaults, and on Windows
+# the C runtime is linked statically (/MT) with OpenMP off, so no DLL of the
+# archive imports a Visual C++ runtime DLL (scripts/smoke.sh checks).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -96,7 +98,7 @@ sha256() {
     | sed -E 's/^([0-9a-f]{64}) [ *]/\1  /'
 }
 
-name="llama-cpp-${LLAMA_TAG}-${target}"
+name="llama-cpp-${RELEASE_TAG}-${target}"
 src="$work/llama.cpp"
 prefix="$work/prefix-$target"
 b1="$work/build-ggml-$target"
@@ -169,7 +171,14 @@ case "$os" in
   windows)
     # The cmake crate's choice for an MSVC target: a Visual Studio
     # generator, 64-bit host tools, x64 platform.
-    common+=(-A x64 -T host=x64) ;;
+    # The C runtime is linked into every DLL (/MT, MultiThreaded): an
+    # application that ships these DLLs must start on a Windows with no
+    # Visual C++ Redistributable, or an older one than the toolset that
+    # built them (build 2, RELEASE_TAG). CMP0091 is NEW under llama.cpp's
+    # and ggml's `cmake_minimum_required(VERSION 3.14...3.28)`, so the
+    # variable is honoured; the vulkan-shaders-gen host tool, an
+    # ExternalProject run only on the build machine, keeps its default.
+    common+=(-A x64 -T host=x64 -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded) ;;
 esac
 
 # ---- 1. one shared ggml -----------------------------------------------------
@@ -182,6 +191,10 @@ stage1+=(-DBUILD_SHARED_LIBS=ON
          -DGGML_BUILD_TESTS=OFF
          -DGGML_BUILD_EXAMPLES=OFF)
 [ "$vulkan" = ON ] && stage1+=(-DGGML_VULKAN=ON)
+# MSVC's OpenMP runtime (vcomp140.dll) exists only as a DLL, so with the
+# static C runtime it is the one Visual C++ DLL left: off, and ggml's own
+# thread pool runs the CPU backend instead.
+[ "$os" = windows ] && stage1+=(-DGGML_OPENMP=OFF)
 
 # REUSE_BUILD=1 keeps an existing prefix and skips both stages: for
 # iterating on the packing by hand, never in CI.
@@ -282,6 +295,7 @@ git -C "$here" diff --quiet HEAD 2>/dev/null || repo_commit="$repo_commit-dirty"
   echo "target: $target"
   echo "archive: $name.tar.gz"
   echo "llama.cpp_repository: $LLAMA_REPO"
+  echo "release_tag: $RELEASE_TAG"
   echo "llama.cpp_tag: $LLAMA_TAG"
   echo "llama.cpp_commit: $LLAMA_COMMIT"
   echo "llama_version: $LLAMA_VERSION"
@@ -298,7 +312,9 @@ git -C "$here" diff --quiet HEAD 2>/dev/null || repo_commit="$repo_commit-dirty"
     macos) echo "macos: $(sw_vers -productVersion) ($(sw_vers -buildVersion))"
            echo "xcode: $(xcodebuild -version 2>/dev/null | tr '\n' ' ')"
            echo "macos_sdk: $(xcrun --show-sdk-version)" ;;
-    windows) echo "windows: $(cmd //c ver 2>/dev/null | tr -d '\r' | grep -v '^$' | head -1)" ;;
+    windows) echo "windows: $(cmd //c ver 2>/dev/null | tr -d '\r' | grep -v '^$' | head -1)"
+             echo "msvc_runtime: $(sed -n 's/^CMAKE_MSVC_RUNTIME_LIBRARY:[A-Z]*=//p' "$b1/CMakeCache.txt") (static)"
+             echo "openmp: $(sed -n 's/^GGML_OPENMP:[A-Z]*=//p' "$b1/CMakeCache.txt")" ;;
   esac
   echo "cmake: $(first cmake --version)"
   echo "cmake_generator: $(sed -n 's/^CMAKE_GENERATOR:INTERNAL=//p' "$b1/CMakeCache.txt")"

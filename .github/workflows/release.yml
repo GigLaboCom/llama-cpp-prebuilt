@@ -1,7 +1,8 @@
 # Builds the pinned llama.cpp for four targets and publishes a release.
 #
-# Trigger: push a tag b<N> whose PIN says LLAMA_TAG=b<N> (README, "Cutting a
-# release for a new pin"). Every target is built by scripts/build.sh and
+# Trigger: push the tag PIN names as RELEASE_TAG — b<N> for a pin's first
+# build, b<N>-<build> when the same llama.cpp is built again (README,
+# "Cutting a release for a new pin"). Every target is built by scripts/build.sh and
 # smoke-tested by scripts/smoke.sh from the packed archive; the release is
 # created only when all four are green.
 #
@@ -17,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "The release tag b<N> (must be the PIN's LLAMA_TAG on the chosen branch)"
+        description: "The release tag (must be the PIN's RELEASE_TAG on the chosen branch: b<N> or b<N>-<build>)"
         required: true
       publish:
         description: "Publish the release (the tag must exist and name this commit)"
@@ -73,8 +74,12 @@ jobs:
       - name: The tag is the pin
         run: |
           . ./PIN
-          echo "PIN: $LLAMA_TAG @ $LLAMA_COMMIT"
-          test "$LLAMA_TAG" = "$TAG" || { echo "tag $TAG but PIN says $LLAMA_TAG"; exit 1; }
+          echo "PIN: $LLAMA_TAG @ $LLAMA_COMMIT, release $RELEASE_TAG"
+          test "$RELEASE_TAG" = "$TAG" || { echo "tag $TAG but PIN says RELEASE_TAG=$RELEASE_TAG"; exit 1; }
+          case "$RELEASE_TAG" in
+            "$LLAMA_TAG" | "$LLAMA_TAG"-[2-9] | "$LLAMA_TAG"-[1-9][0-9]) ;;
+            *) echo "RELEASE_TAG $RELEASE_TAG is neither $LLAMA_TAG nor $LLAMA_TAG-<build>"; exit 1 ;;
+          esac
 
       - name: Build tools and Vulkan (Linux)
         if: runner.os == 'Linux'
@@ -164,12 +169,14 @@ jobs:
             echo "llama.cpp **$LLAMA_TAG** (\`$LLAMA_COMMIT\`), ggml $GGML_VERSION (\`$GGML_COMMIT\`) — pin \`$PIN_STRING\`."
             echo
             echo "Built by \`scripts/build.sh\` exactly as wipemark-llama-sys builds it: one shared ggml with run-time-loaded backends (\`GGML_BACKEND_DL=ON\`) and libllama against it."
-            echo "Vulkan on Linux and Windows, Metal on macOS, no CUDA. Each archive carries \`include/\`, \`lib/\` (and \`bin/\` on Windows), \`backends/\`, pre-generated \`bindings.rs\` (bindgen 0.71.1), \`LICENSE-llama.cpp\` (MIT) and \`PROVENANCE.txt\`."
+            echo "Vulkan on Linux and Windows, Metal on macOS, no CUDA. On Windows the C runtime is linked statically (/MT) and OpenMP is off: no DLL imports a Visual C++ runtime DLL, so nothing needs the Redistributable (scripts/smoke.sh checks every import table)."
+            [ "$RELEASE_TAG" = "$LLAMA_TAG" ] || echo "This is build ${RELEASE_TAG#"$LLAMA_TAG"-} of llama.cpp $LLAMA_TAG; the PIN file says what changed since the build before it."
+            echo "Each archive carries \`include/\`, \`lib/\` (and \`bin/\` on Windows), \`backends/\`, pre-generated \`bindings.rs\` (bindgen 0.71.1), \`LICENSE-llama.cpp\` (MIT) and \`PROVENANCE.txt\`."
             echo
             echo "| target | archive | sha256 |"
             echo "|---|---|---|"
             for f in assets/*.tar.gz; do
-              b="$(basename "$f")"; t="${b#llama-cpp-$LLAMA_TAG-}"; t="${t%.tar.gz}"
+              b="$(basename "$f")"; t="${b#llama-cpp-$RELEASE_TAG-}"; t="${t%.tar.gz}"
               echo "| \`$t\` | \`$b\` | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"
             done
             echo

@@ -58,7 +58,23 @@ case "$os" in
       echo "  $(basename "$f"): rpath $rp"
     done ;;
   windows)
-    ls "$root"/bin/*.dll "$root"/lib/*.lib >/dev/null ;;
+    ls "$root"/bin/*.dll "$root"/lib/*.lib >/dev/null
+    # No DLL may import a Visual C++ runtime DLL (the static C runtime and
+    # no OpenMP, build.sh): an application shipping them has to start on a
+    # Windows without the Redistributable. The runner has it installed, so
+    # running smoke below cannot show this; the import tables do. The list
+    # is the one heretic-lazy-shot's and mnemoria's ORT gates use.
+    readobj="$(command -v llvm-readobj || true)"
+    [ -n "$readobj" ] || [ ! -x "/c/Program Files/LLVM/bin/llvm-readobj.exe" ] || readobj="/c/Program Files/LLVM/bin/llvm-readobj.exe"
+    [ -n "$readobj" ] || die "llvm-readobj not found: the import gate cannot run"
+    crt='^(msvcp|vcruntime|ucrtbase|concrt|vcomp|api-ms-win-crt-)'
+    for f in "$root"/bin/*.dll "$root"/backends/*.dll; do
+      imports="$("$readobj" --coff-imports "$f" | sed -n 's/^ *Name: //p' | tr -d '\r' | sort -u)"
+      [ -n "$imports" ] || die "$f: no import table read"
+      bad="$(printf '%s\n' "$imports" | grep -iE "$crt" || true)"
+      [ -z "$bad" ] || die "$(basename "$f") imports the Visual C++ runtime: $(echo $bad)"
+      echo "  $(basename "$f"): $(echo $imports)"
+    done ;;
 esac
 
 echo "== build smoke against the archive"

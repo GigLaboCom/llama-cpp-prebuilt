@@ -34,15 +34,17 @@ libraries must keep it with them.
 
 Compiled into the Vulkan backend are the Khronos Vulkan headers
 (`Vulkan-Hpp`, Apache-2.0 / MIT) from the build machine's Vulkan SDK; the
-libraries link the platform C++ runtime, and on Linux and Windows the
-OpenMP runtime (`libgomp`, `vcomp140`).
+libraries link the platform C++ runtime — on Windows statically, so the
+Microsoft C runtime's licence travels inside the DLLs — and on Linux the
+OpenMP runtime (`libgomp`). Windows builds have no OpenMP.
 
 The scripts in this repository are MIT-licensed too ([`LICENSE`](LICENSE)).
 
 ## What a release contains
 
 A release is tagged with the llama.cpp release tag it builds — `b10731` —
-and carries, for each target:
+or, when the same llama.cpp is built again, with that tag and a build
+number — `b10731-2` (`PIN`'s `RELEASE_TAG`). It carries, for each target:
 
 | asset | what it is |
 |---|---|
@@ -82,9 +84,12 @@ llama-cpp-b10731-x86_64-unknown-linux-gnu/
 * **Runtime requirements.** Linux: glibc ≥ 2.39 and GCC 13's libstdc++
   (the runner is Ubuntu 24.04), `libgomp.so.1`; the Vulkan backend
   additionally `libvulkan.so.1` — without it only that backend fails to
-  load. macOS: 11.0 or newer. Windows: the Visual C++ runtime
-  (`vcruntime140`, `msvcp140`, `vcomp140`), and `vulkan-1.dll`, which a GPU
-  driver installs.
+  load. macOS: 11.0 or newer. Windows: nothing beyond the system's own
+  DLLs since `b10731-2` — the C runtime is linked into each DLL (`/MT`) and
+  OpenMP is off, so no Visual C++ Redistributable is needed and the import
+  tables are checked for it — and, for the Vulkan backend only,
+  `vulkan-1.dll`, which a GPU driver installs. (`b10731`'s Windows archive
+  needed `vcruntime140`, `msvcp140` and `vcomp140`.)
 * **Bindings are per target.** `c_char`, `c_long` and the layout of
   system types differ between targets; use the `bindings.rs` of the archive
   you link. On `x86_64-unknown-linux-gnu` it is byte-identical to what
@@ -111,7 +116,9 @@ compares against that.
 ## The consumer contract (what wipemark-llama-sys implements)
 
 1. **Which asset.** `https://github.com/GigLaboCom/llama-cpp-prebuilt/releases/download/<tag>/llama-cpp-<tag>-<target>.tar.gz`,
-   where `<tag>` is `pin::LLAMA_TAG` and `<target>` is cargo's `TARGET`.
+   where `<tag>` is the release tag — `PIN`'s `RELEASE_TAG`: the llama.cpp tag for a
+   pin's first build, `<llama tag>-<build>` when the same llama.cpp was built
+   again — and `<target>` is cargo's `TARGET`.
    The four targets above are the only ones published.
 2. **Which bytes.** The sha256 of that archive, pinned in the consumer's
    repository, checked before anything is unpacked; a mismatch is a build
@@ -225,7 +232,18 @@ Deliberate, and the only differences:
   `/O2`, `/DNDEBUG` and `/EHsc`: wipemark-llama-sys on Windows would build
   an unoptimised ggml with assertions on and no C++ exception model. This
   build keeps CMake's Release defaults instead (`/O2 /Ob2 /DNDEBUG`,
-  `/EHsc`, `/MD`). On Linux and macOS the flags are the `cmake` and `cc`
+  `/EHsc`), with the runtime library `MultiThreaded` (`/MT`, since
+  `b10731-2`; `/MD` before).
+* **Static C runtime, no OpenMP, on Windows** (since `b10731-2`).
+  `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` on both stages and
+  `GGML_OPENMP=OFF` (MSVC's `vcomp140` has no static form; ggml's own
+  thread pool runs the CPU backend). An application shipping these DLLs
+  starts on a Windows without the Visual C++ Redistributable, or with an
+  older one than the toolset that built them. `scripts/smoke.sh` fails on
+  any import of `msvcp*`, `vcruntime*`, `vcomp*`, `concrt*`, `ucrtbase` or
+  `api-ms-win-crt-*`. Each DLL carries its own runtime: memory is freed by
+  the library that allocated it, which ggml's backend interface already
+  requires. On Linux and macOS the flags are the `cmake` and `cc`
   crates' exactly (`-ffunction-sections -fdata-sections -fPIC [-m64] -w`,
   and `--target=arm64-apple-macosx -mmacosx-version-min=11.0` on macOS).
 * **Only the libraries are packed** — not `lib/cmake/` or `lib/pkgconfig/`,
@@ -257,3 +275,10 @@ procedure"); this repository follows it.
    `-f publish=true` on a tagged commit it publishes (assets are replaced).
 4. Download each archive, check it against `SHA256SUMS`, record the four
    sha256 in the table above and in wipemark's `PIN.md`.
+
+To build the **same** pin again (other flags, another toolchain), leave the
+llama.cpp lines of `PIN` alone and set `RELEASE_TAG` to `<llama tag>-<n>`,
+the next build number, with a line saying why; then steps 2–4 with that
+tag. The release workflow accepts only `RELEASE_TAG`, and only the llama.cpp
+tag or that tag with a build number. All four targets are built again, so
+all four sha256 change.
