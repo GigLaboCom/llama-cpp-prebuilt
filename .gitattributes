@@ -1,0 +1,5 @@
+# A patch is applied to upstream's tree byte for byte, so its line endings
+# are never converted: Git for Windows (a Windows runner's checkout too)
+# would give it CRLF, and `git apply` refuses it against the LF tree
+# scripts/build.sh checks out.
+*.patch -text
