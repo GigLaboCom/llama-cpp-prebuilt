@@ -141,6 +141,31 @@ compares against that.
    check still applies. When it is unset, the release asset is downloaded
    and verified.
 
+### b10731-2
+
+The same pin as `b10731` below, built again on 2026-11-16 for Windows: the
+static C runtime (`/MT`), no OpenMP, and `patches/windows/0001-llama-mmap-own-fopen.patch`
+(sha256 `bb7e9e0abcc73f0681a5ddce7b166b6becb72ce427ab6f710a244e02fc581734`,
+named in the Windows archive's `PROVENANCE.txt`); the other three targets
+built again unchanged.
+Release: <https://github.com/GigLaboCom/llama-cpp-prebuilt/releases/tag/b10731-2>.
+
+| target | sha256 of `llama-cpp-b10731-2-<target>.tar.gz` | size |
+|---|---|---|
+| `x86_64-unknown-linux-gnu` | `4621ccb45a2af78f3ce60d0ff66d765d75c77b44611693fe7b449ee32401dc60` | 22 492 433 |
+| `aarch64-unknown-linux-gnu` | `989d8a6e9fb6a42a43afa0e4c14e2f136da2ae551ab19f71070a95734049881f` | 16 384 131 |
+| `x86_64-pc-windows-msvc` | `031a5b0017e26c6f29b87ad0076c6770453403d36c54633144cf5637f92e0d1c` | 22 989 920 |
+| `aarch64-apple-darwin` | `d6bc9a72e4c248ca50d66acdc9810e19d1a9f0e17c5d994497d83a202ca5adb7` | 2 257 587 |
+
+Built from this repository at `91da90f` by
+[run 43905795326](https://github.com/GigLaboCom/llama-cpp-prebuilt/actions/runs/43905795326).
+Checked before tagging, on Windows 10 with no GPU, against the same
+configuration built locally: every DLL imports only system DLLs (and
+`vulkan-1.dll` for the Vulkan backend), and through wipemark-llama a model
+(Gemma 4 E2B, UD-Q4_K_XL) loads, writes a sentence, refuses a prompt longer
+than its window and abandons a stopped load; without the patch the first
+load ended with `0xc0000409`.
+
 ### b10731
 
 Pin `ggml-0.22.0+llama-0eadefe`: llama.cpp `0eadefebd3f8f92a86d634a0e5b8fffc9dc792c0`,
